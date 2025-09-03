@@ -46,11 +46,22 @@
     #hover-popup .row + .row { margin-top: 4px; }
 
     /* Back */
-    #backButton { position: absolute; top: 12px; left: 12px; z-index: 3; background: #B5B5B5; color: #000; padding: 8px 12px; border-radius: 6px; text-decoration: none; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+    #backButton { position: absolute; top: 12px; left: 12px; z-index: 4; background: #B5B5B5; color: #000; padding: 8px 12px; border-radius: 6px; text-decoration: none; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+
+    /* Botón arriba a la derecha */
+    #rightButton {
+      position: absolute; top: 12px; right: 12px; z-index: 4;
+      background: #B5B5B5; color: #000; padding: 8px 12px;
+      border-radius: 6px; text-decoration: none; box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    }
+    #rightButton:hover { background: #A9A9A9; }
   </style>
 </head>
 <body>
-  <a href="index.html" id="backButton">Inici</a>
+
+  <!-- Botón arriba a la derecha para ir a DifVots.html -->
+  <a href="DifVots.html" id="rightButton">Ver diferencia votos</a>
+
   <div id="map"></div>
 
   <div id="popup-container">
@@ -64,8 +75,8 @@
     <div class="legend-separator"></div>
     <div class="legend-gradient"></div>
     <div class="legend-labels">
-      <span id="legend-min">0.0</span>
-      <span id="legend-mid">-</span>
+      <span id="legend-min">-</span>
+      <span id="legend-mid">0.0</span>
       <span id="legend-max">-</span>
     </div>
     <div class="opacity">
@@ -105,38 +116,31 @@
         .replace(/[−–—]/g, '-')        // distintos guiones → '-'
         .replace(/pp|%/ig, '')         // quitar unidades
         .trim();
-      // Si hay coma decimal, quitamos puntos de miles
       if (/,/.test(s)) s = s.replace(/\.(?=\d{3}(\D|$))/g, '');
-      s = s.replace(/,/g, '.');        // coma → punto
-      s = s.replace(/\s/g, '');       // quitar espacios
+      s = s.replace(/,/g, '.');
+      s = s.replace(/\s/g, '');
       const n = parseFloat(s);
       return isNaN(n) ? NaN : n;
     };
 
     const fmt = (x) => (isNaN(x) ? '—' : (x>0?'+':'') + x.toFixed(1) + ' pp');
 
-    // Carga CSV con Papa (delimitador ';')
     function loadCSV(path) {
-  return new Promise((resolve) => {
-    Papa.parse(path, {
-      download: true,
-      header: true,
-      skipEmptyLines: true,
-      dynamicTyping: false,
-      // No fijamos 'delimiter' -> autodetección (coma/;).
-      // Limpiamos BOM y comillas de los encabezados para que 'Dif. Promedio' coincida.
-      transformHeader: (h) => String(h)
-        .replace(/^\uFEFF/, '')      // BOM
-        .replace(/^"+|"+$/g, '')     // comillas alrededor
-        .replace(/\u00A0/g, ' ')     // NBSP → espacio normal
-        .trim(),
-      complete: (res) => resolve(res.data)
-    });
-  });
-}
-
-
-
+      return new Promise((resolve) => {
+        Papa.parse(path, {
+          download: true,
+          header: true,
+          skipEmptyLines: true,
+          dynamicTyping: false,
+          transformHeader: (h) => String(h)
+            .replace(/^\uFEFF/, '')
+            .replace(/^"+|"+$/g, '')
+            .replace(/\u00A0/g, ' ')
+            .trim(),
+          complete: (res) => resolve(res.data)
+        });
+      });
+    }
 
     map.on('load', async () => {
       const geoUrl = 'https://api.mapbox.com/datasets/v1/paubelloperez/cm0dx5dne4o5o1vnrtf01d057/features?access_token=' + mapboxgl.accessToken;
@@ -145,19 +149,17 @@
         loadCSV('FinalPSC_Indic.csv')
       ]);
 
-      // Limpiar filas vacías y normalizar claves exactas
       const rows = rowsRaw.filter(r => r && Object.keys(r).length > 0).map(obj => {
         const out = {};
         for (const k in obj) {
-          const ck = k.replace(/^\uFEFF/, '').trim(); // limpia BOM y espacios
+          const ck = k.replace(/^\uFEFF/, '').trim();
           out[ck] = obj[k];
         }
         return out;
       });
 
-      const DIFF_COL = 'Dif. Promedio'; // columna exacta solicitada
+      const DIFF_COL = 'Dif. Promedio';
 
-      // Construir lookup Districte-Secció -> número
       const diffByKey = new Map();
       rows.forEach(r => {
         const key = `${normKey(r.Districte)}-${normKey(r.Secció)}`;
@@ -165,19 +167,16 @@
         if (!isNaN(val)) diffByKey.set(key, val);
       });
 
-      // Inyectar al GeoJSON
       geojson.features.forEach(f => {
         const key = `${normKey(f.properties.Districte)}-${normKey(f.properties.Secció)}`;
         const v = diffByKey.get(key);
-        if (v !== undefined) f.properties.DifPromedio = v; // en puntos porcentuales
+        if (v !== undefined) f.properties.DifPromedio = v; // en pp
       });
 
-      // Dominio simétrico alrededor de 0
       const values = geojson.features.map(f => f.properties.DifPromedio).filter(v => typeof v === 'number' && !isNaN(v));
       const maxAbs = values.length ? Math.max(...values.map(v => Math.abs(v))) : 1;
       const domain = [-maxAbs, 0, maxAbs];
 
-      // Fuente y capas
       map.addSource('secciones-censales', { type: 'geojson', data: geojson });
 
       map.addLayer({
@@ -194,18 +193,15 @@
 
       map.addLayer({ id: 'secciones-censales-lines', type: 'line', source: 'secciones-censales', paint: { 'line-color': '#000', 'line-width': 0.5 } });
 
-      // Leyenda dinámica
       document.getElementById('legend-min').textContent = (-maxAbs).toFixed(1);
       document.getElementById('legend-mid').textContent = '0.0';
       document.getElementById('legend-max').textContent = maxAbs.toFixed(1);
 
-      // Opacidad
       document.getElementById('opacity-slider').addEventListener('input', (e) => {
         const v = parseFloat(e.target.value);
         if (map.getLayer('secciones-censales-layer')) map.setPaintProperty('secciones-censales-layer', 'fill-opacity', v);
       });
 
-      // Hover
       const hover = document.getElementById('hover-popup');
       map.on('mousemove', 'secciones-censales-layer', (e) => {
         const f = e.features && e.features[0];
@@ -223,7 +219,6 @@
       });
       map.on('mouseleave', 'secciones-censales-layer', () => { hover.style.display = 'none'; map.getCanvas().style.cursor = ''; });
 
-      // Click -> panel inferior
       map.on('click', 'secciones-censales-layer', (e) => {
         const f = e.features && e.features[0];
         if (!f) return;
@@ -237,7 +232,6 @@
         document.getElementById('popup-container').style.display = 'block';
       });
 
-      // Cerrar panel si se hace click fuera
       map.on('click', (e) => {
         const feats = map.queryRenderedFeatures(e.point, { layers: ['secciones-censales-layer'] });
         if (!feats.length) document.getElementById('popup-container').style.display = 'none';
